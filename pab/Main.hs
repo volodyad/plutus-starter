@@ -27,13 +27,20 @@ import           Plutus.PAB.Simulator                (SimulatorEffectHandlers)
 import qualified Plutus.PAB.Simulator                as Simulator
 import           Plutus.PAB.Types                    (PABError (..))
 import qualified Plutus.PAB.Webserver.Server         as PAB.Server
-import           Plutus.Contracts.Game               as Game
+import           Contracts.Currency                  as Currency
 import           Wallet.Emulator.Types               (Wallet (..))
-
+import qualified Data.ByteString.Char8               as B
+import           Ledger.Value                        (TokenName (..))
 main :: IO ()
 main = void $ Simulator.runSimulationWith handlers $ do
     Simulator.logString @(Builtin StarterContracts) "Starting plutus-starter PAB webserver on port 8080. Press enter to exit."
     shutdown <- PAB.Server.startServerDebug
+
+    let w1 = Wallet 1
+    currencyInstance1 <- Simulator.activateContract w1 CurrencyContract
+    void $ Simulator.waitForEndpoint currencyInstance1 "createNativeToken"
+    void $ Simulator.callEndpointOnInstance currencyInstance1 "createNativeToken" SimpleMPS {Currency.tokenName = TokenName $ B.pack "TestCurrency", amount = 10}
+    void $ Simulator.waitUntilFinished currencyInstance1
     -- Example of spinning up a game instance on startup
     -- void $ Simulator.activateContract (Wallet 1) GameContract
     -- You can add simulator actions here:
@@ -52,7 +59,7 @@ main = void $ Simulator.runSimulationWith handlers $ do
     shutdown
 
 data StarterContracts =
-    GameContract
+    CurrencyContract
     deriving (Eq, Ord, Show, Generic)
 
 -- NOTE: Because 'StarterContracts' only has one constructor, corresponding to 
@@ -79,12 +86,12 @@ handleStarterContract ::
     ~> Eff effs
 handleStarterContract = Builtin.handleBuiltin getSchema getContract where
     getSchema = \case
-        GameContract -> Builtin.endpointsToSchemas @(Game.GameSchema .\\ BlockchainActions)
+        CurrencyContract -> Builtin.endpointsToSchemas @(Currency.CurrencySchema .\\ BlockchainActions)
     getContract = \case
-        GameContract -> SomeBuiltin (Game.game @ContractError)
+        CurrencyContract -> SomeBuiltin Currency.forgeCurrency
 
 handlers :: SimulatorEffectHandlers (Builtin StarterContracts)
 handlers =
-    Simulator.mkSimulatorHandlers @(Builtin StarterContracts) [GameContract]
+    Simulator.mkSimulatorHandlers @(Builtin StarterContracts) [CurrencyContract]
     $ interpret handleStarterContract
 

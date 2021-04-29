@@ -23,18 +23,21 @@ maintainer:         Your email
 
 library
     exposed-modules:
-      MyModule
-      Plutus.Contracts.Game
+      NFT
+      Contracts.Currency
+      Contracts.PubKey
     build-depends:
       base >= 4.9 && < 5,
       aeson,
       bytestring,
+      lens -any,
+      containers -any,
       playground-common,
       plutus-contract,
       plutus-tx-plugin,
       plutus-tx,
       plutus-ledger
-    hs-source-dirs: src examples/src
+    hs-source-dirs: src src/Contracts examples/src
     default-language: Haskell2010
     ghc-options:
             -- See Plutus Tx readme
@@ -43,7 +46,7 @@ library
 test-suite plutus-example-projects-test
   type: exitcode-stdio-1.0
   main-is: Spec.hs
-  hs-source-dirs: examples/test
+  hs-source-dirs: src/test1
   other-modules:
     Spec.Game
   default-language: Haskell2010
@@ -71,6 +74,7 @@ executable plutus-starter-pab
     -threaded
   build-depends:
     base >= 4.9 && < 5,
+    bytestring,
     plutus-contract -any,
     plutus-pab -any,
     plutus-starter -any,
