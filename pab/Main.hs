@@ -13,10 +13,11 @@ module Main(main) where
 
 import           Control.Monad                       (void)
 import           Control.Monad.Freer                 (Eff, Member, interpret, type (~>))
+import qualified Control.Concurrent.STM                         as STM
 import           Control.Monad.Freer.Error           (Error)
 import           Control.Monad.IO.Class              (MonadIO (..))
 import           Data.Aeson                          (FromJSON (..), ToJSON (..), genericToJSON, genericParseJSON
-                                                     , defaultOptions, Options(..))
+                                                     , defaultOptions, Options(..), decode, parseJSON)
 import           Data.Text.Prettyprint.Doc           (Pretty (..), viaShow)
 import           GHC.Generics                        (Generic)
 import           Plutus.Contract                     (BlockchainActions, ContractError)
@@ -28,28 +29,55 @@ import qualified Plutus.PAB.Simulator                as Simulator
 import           Plutus.PAB.Types                    (PABError (..))
 import qualified Plutus.PAB.Webserver.Server         as PAB.Server
 import           Contracts.Currency                  as Currency
+import           Contracts.Auction                   as Auction
 import           Wallet.Emulator.Types               (Wallet (..))
 import qualified Data.ByteString.Char8               as B
-import           Ledger.Value                        (TokenName (..))
+import qualified Ledger.Value            as Value
+import           Ledger.Value                        (TokenName (..), Value)
+import           Wallet.API                               (ownPubKey)
+import           Ledger                                   (CurrencySymbol(..), pubKeyAddress)
+import qualified Ledger.Typed.Scripts         as Scripts
+
+extract :: Maybe a -> a
+extract (Just x) = x          -- Sure, this works, but...
+extract Nothing  = undefined 
+
 main :: IO ()
 main = void $ Simulator.runSimulationWith handlers $ do
     Simulator.logString @(Builtin StarterContracts) "Starting plutus-starter PAB webserver on port 8080. Press enter to exit."
     shutdown <- PAB.Server.startServerDebug
 
+    --------------------------
     let w1 = Wallet 1
+    let w2 = Wallet 2
+    let tokenName = TokenName $ B.pack "TestCurrency"
+    w1Address <- pubKeyAddress <$> Simulator.handleAgentThread w1 ownPubKey
     currencyInstance1 <- Simulator.activateContract w1 CurrencyContract
     void $ Simulator.waitForEndpoint currencyInstance1 "createNativeToken"
-    void $ Simulator.callEndpointOnInstance currencyInstance1 "createNativeToken" SimpleMPS {Currency.tokenName = TokenName $ B.pack "TestCurrency", amount = 10}
-    void $ Simulator.waitUntilFinished currencyInstance1
-    -- Example of spinning up a game instance on startup
-    -- void $ Simulator.activateContract (Wallet 1) GameContract
-    -- You can add simulator actions here:
-    -- Simulator.observableState
-    -- etc.
-    -- That way, the simulation gets to a predefined state and you don't have to
-    -- use the HTTP API for setup.
+    void $ Simulator.callEndpointOnInstance currencyInstance1 "createNativeToken" SimpleMPS {Currency.tokenName = tokenName, amount = 1}
+    Simulator.waitNSlots 10
+    currency <- Simulator.valueAt w1Address
+    resultStm <- Simulator.finalResult currencyInstance1
+    result <- liftIO $ STM.atomically resultStm
+    let mph = Scripts.monetaryPolicyHash currencyInstance1
 
-    -- Pressing enter results in the balances being printed
+    Simulator.logString @(Builtin StarterContracts) $ show result
+    Simulator.logString @(Builtin StarterContracts) "Result12"
+    Simulator.logString @(Builtin StarterContracts) $ show mph
+    Simulator.logString @(Builtin StarterContracts) "Result13"
+    auctionInstance1 <- Simulator.activateContract w1 AuctionContract
+    currentSlotStm <- Simulator.currentSlot 
+    currentSlot <- liftIO $ STM.atomically currentSlotStm
+    let tokenSymbol = Value.currencySymbol $ B.pack "3bbbf8c271d16c3007fa25078df20ee98ac6f013bc38d02d1cbbed87aa8c7fb8"
+    Simulator.logString @(Builtin StarterContracts) $ show tokenSymbol
+    Simulator.logString @(Builtin StarterContracts) "Ura1"
+    void $ Simulator.waitForEndpoint auctionInstance1 "start"
+    void $ Simulator.callEndpointOnInstance auctionInstance1 "start" StartParams { spDeadline = currentSlot, spMinBid = 1, spCurrency=tokenSymbol, spToken=tokenName}
+    Simulator.waitNSlots 1
+    Simulator.logString @(Builtin StarterContracts) "Ura"
+
+
+    ------------
     void $ liftIO getLine
     
     Simulator.logString @(Builtin StarterContracts) "Balances at the end of the simulation"
@@ -59,7 +87,8 @@ main = void $ Simulator.runSimulationWith handlers $ do
     shutdown
 
 data StarterContracts =
-    CurrencyContract
+    CurrencyContract 
+    | AuctionContract 
     deriving (Eq, Ord, Show, Generic)
 
 -- NOTE: Because 'StarterContracts' only has one constructor, corresponding to 
@@ -87,11 +116,13 @@ handleStarterContract ::
 handleStarterContract = Builtin.handleBuiltin getSchema getContract where
     getSchema = \case
         CurrencyContract -> Builtin.endpointsToSchemas @(Currency.CurrencySchema .\\ BlockchainActions)
+        AuctionContract -> Builtin.endpointsToSchemas @(Auction.AuctionSchema .\\ BlockchainActions)
     getContract = \case
         CurrencyContract -> SomeBuiltin Currency.forgeCurrency
+        AuctionContract -> SomeBuiltin Auction.endpoints
 
 handlers :: SimulatorEffectHandlers (Builtin StarterContracts)
 handlers =
-    Simulator.mkSimulatorHandlers @(Builtin StarterContracts) [CurrencyContract]
+    Simulator.mkSimulatorHandlers @(Builtin StarterContracts) [CurrencyContract, AuctionContract]
     $ interpret handleStarterContract
 

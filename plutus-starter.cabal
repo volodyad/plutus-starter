@@ -26,10 +26,12 @@ library
       NFT
       Contracts.Currency
       Contracts.PubKey
+      Contracts.Auction
     build-depends:
       base >= 4.9 && < 5,
       aeson,
       bytestring,
+      text -any,
       lens -any,
       containers -any,
       playground-common,
@@ -82,4 +84,5 @@ executable plutus-starter-pab
     freer-simple -any,
     prettyprinter -any,
     freer-extras -any,
-    plutus-ledger -any
+    plutus-ledger -any,
+    stm -any,
